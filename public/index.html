@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cocina - Armandazo</title>
+    <style>
+        body { font-family: 'Arial', sans-serif; background-color: #121212; color: #ffffff; margin: 0; padding: 20px; }
+        h1 { text-align: center; color: #ffcc00; margin-bottom: 30px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+        .card { background-color: #1e1e1e; border: 3px solid #ffcc00; border-radius: 12px; padding: 20px; display: flex; flex-direction: column; justify-content: space-between; position: relative; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+        .mesa { font-size: 28px; font-weight: bold; color: #ffcc00; border-bottom: 2px solid #333; padding-bottom: 5px; margin-bottom: 15px; }
+        .contenido { font-size: 20px; line-height: 1.4; white-space: pre-line; margin-bottom: 60px; }
+        .btn-x { background-color: #e53935; color: white; border: none; font-size: 30px; font-weight: bold; width: 100%; padding: 12px; border-radius: 8px; cursor: pointer; transition: background 0.2s; }
+        .btn-x:hover { background-color: #b71c1c; }
+    </style>
+</head>
+<body>
+
+    <h1>👨‍🍳 COCINA - ARMANDAZO 👩‍🍳</h1>
+    <div class="grid" id="panel-comandas"></div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const panel = document.getElementById('panel-comandas');
+
+        // Escuchar cuando llega una comanda gratis desde index.js
+        socket.on('nueva_comanda', (data) => {
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.id = `comanda-${data.id}`;
+            card.innerHTML = `
+                <div class="mesa">MESA ${data.mesa}</div>
+                <div class="contenido">${data.pedido}</div>
+                <button class="btn-x" onclick="despachar(${data.id})">X</button>
+            `;
+            panel.appendChild(card);
+        });
+
+        // Enviar aviso de que el pedido salió (Cambia el estado a COMPLETADO en SQLite)
+        function despachar(id) {
+            socket.emit('completar_pedido', id);
+            const card = document.getElementById(`comanda-${id}`);
+            if(card) card.remove();
+        }
+    </script>
+</body>
+</html>
