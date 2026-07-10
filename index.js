@@ -74,7 +74,6 @@ async function guardarYEnviarComanda(mesa, pedidoLimpio, ctx) {
         const comandaId = resComanda.rows[0].id;
 
         // 2. Procesar los platos para calcular precios automáticamente
-        // Separamos si vienen por comas o por conectores de texto ("y")
         const items = pedidoLimpio.split(/,|\by\b/); 
         let totalComanda = 0;
         let resumenProductos = [];
@@ -93,7 +92,7 @@ async function guardarYEnviarComanda(mesa, pedidoLimpio, ctx) {
                 nombrePlatoBuscar = item.replace(/^\d+/, '').trim();
             }
 
-            // Quitar palabras conectoras secundarias (como "un", "una", "de")
+            // Quitar palabras conectoras secundarias
             nombrePlatoBuscar = nombrePlatoBuscar.replace(/^(un|una|de|unos|unas)\s+/i, '').trim();
 
             // Buscar el plato en la base de datos (haciendo una búsqueda flexible)
@@ -114,7 +113,11 @@ async function guardarYEnviarComanda(mesa, pedidoLimpio, ctx) {
                 );
                 resumenProductos.push(`🔹 ${cantidad}x ${plato.nombre} (S/. ${subtotal.toFixed(2)})`);
             } else {
-                // Si el mesero escribe algo que no está exactamente en el menú, lo registra de igual forma con precio 0 para no trabar la cocina
+                // Si no se encuentra exactamente, se guarda con precio 0 e ID nulo en el detalle para no romper el flujo
+                await client.query(
+                    "INSERT INTO detalle_comandas (comanda_id, menu_id, cantidad, precio_unitario, subtotal) VALUES ($1, NULL, $2, 0.00, 0.00)",
+                    [comandaId, cantidad]
+                );
                 resumenProductos.push(`❓ ${cantidad}x ${nombrePlatoBuscar} (No listado en Carta)`);
             }
         }
@@ -158,23 +161,26 @@ io.on('connection', (socket) => {
     });
 });
 
-// --- COMANDO REPORTE AVANZADO (Cierre de Caja y Conteo exacto) ---
+// --- COMANDO REPORTE ULTRA FLEXIBLE (Suma todo y no se traba) ---
 bot.command('reporte', async (ctx) => {
     try {
-        // 1. Obtener totales de caja del día
+        // 1. Obtener totales de caja (tanto pendientes como completados para ver el movimiento real)
         const resCaja = await pool.query(`
             SELECT COUNT(id) AS total_pedidos, COALESCE(SUM(total_comanda), 0) AS ingresos_totales 
             FROM comandas 
-            WHERE fecha AT TIME ZONE 'America/Lima' >= CURRENT_DATE AND estado = 'COMPLETADO'
+            WHERE fecha AT TIME ZONE 'America/Lima' >= CURRENT_DATE
         `);
 
-        // 2. Obtener conteo exacto de qué platos salieron hoy
+        // 2. Obtener conteo exacto usando LEFT JOIN (así muestra los platos aunque el mesero los haya escrito un poco diferente)
         const resPlatos = await pool.query(`
-            SELECT m.nombre, SUM(dc.cantidad) AS total_vendido, SUM(dc.subtotal) AS recaudado
+            SELECT 
+                COALESCE(m.nombre, 'Plato personalizado/no identificado') AS nombre_plato, 
+                SUM(dc.cantidad) AS total_vendido, 
+                SUM(dc.subtotal) AS recaudado
             FROM detalle_comandas dc
-            JOIN menu m ON dc.menu_id = m.id
+            LEFT JOIN menu m ON dc.menu_id = m.id
             JOIN comandas c ON dc.comanda_id = c.id
-            WHERE c.fecha AT TIME ZONE 'America/Lima' >= CURRENT_DATE AND c.estado = 'COMPLETADO'
+            WHERE c.fecha AT TIME ZONE 'America/Lima' >= CURRENT_DATE
             GROUP BY m.id, m.nombre
             ORDER BY total_vendido DESC
         `);
@@ -182,24 +188,24 @@ bot.command('reporte', async (ctx) => {
         const caja = resCaja.rows[0];
 
         let msg = "📊 **REPORTE DE VENTAS - EL ARMANDAZO** 📊\n";
-        msg += `📆 _Filtro: Hoy_\n`;
+        msg += `📆 _Filtro: Ventas de Hoy_\n`;
         msg += `------------------------------------------\n`;
-        msg += `✅ Comandas cobradas: *${caja.total_pedidos}*\n`;
+        msg += `📝 Comandas Totales: *${caja.total_pedidos}*\n`;
         msg += `💰 **INGRESO TOTAL DE CAJA: S/. ${parseFloat(caja.ingresos_totales).toFixed(2)}**\n`;
         msg += `------------------------------------------\n`;
-        msg += `🍗 **CONTEO DE PLATOS VENDIDOS:**\n\n`;
+        msg += `🍗 **CONTEO DE PLATOS EN TOTAL:**\n\n`;
 
         if (resPlatos.rows.length === 0) {
-            msg += "_Aún no se han completado pedidos hoy._";
+            msg += "_Aún no hay pedidos registrados el día de hoy._";
         } else {
             resPlatos.rows.forEach(fila => {
-                msg += `🔹 ${fila.total_vendido}x ${fila.nombre}  (S/. ${parseFloat(fila.recaudado).toFixed(2)})\n`;
+                msg += `🔹 ${fila.total_vendido}x ${fila.nombre_plato} (S/. ${parseFloat(fila.recaudado).toFixed(2)})\n`;
             });
         }
 
         ctx.replyWithMarkdown(msg);
     } catch (err) {
-        console.error(err);
+        console.error("Error en reporte:", err);
         ctx.reply("❌ Error al generar el reporte financiero.");
     }
 });
