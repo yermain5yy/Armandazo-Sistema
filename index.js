@@ -28,9 +28,13 @@ const bot = new Telegraf(process.env.TELEGRAM_TOKEN);
 bot.start((ctx) => ctx.reply('¡Bienvenido al sistema inteligente de El Armandazo!\nEnvía los pedidos de forma natural.\n\nEjemplos:\n- Mesa 4 2 pollos broaster, 1 chicha morada jarra grande\n- Mesa 2 un mostrito y una salchipapa'));
 
 // --- PROCESADOR DE TEXTO FLEXIBLE (CON O SIN GUIONES / AUDIOS DICTADOS) ---
-bot.on('text', async (ctx) => {
+bot.on('text', async (ctx, next) => {
     const texto = ctx.message.text;
-    if (texto.startsWith('/')) return;
+    
+    // Si el texto es un comando, dejamos que pasen los comandos abajo y detenemos este procesador de texto
+    if (texto.startsWith('/')) {
+        return next();
+    }
 
     const textoMinuscula = texto.toLowerCase();
 
@@ -161,8 +165,8 @@ io.on('connection', (socket) => {
     });
 });
 
-// --- COMANDO REPORTE ULTRA FLEXIBLE (Suma todo y no se traba) ---
-bot.command('reporte', async (ctx) => {
+// --- COMANDO REPORTE CORREGIDO (Ignora el arroba/alias del bot si se manda en grupos) ---
+bot.hears(/^\/reporte/i, async (ctx) => {
     try {
         // 1. Obtener totales de caja (tanto pendientes como completados para ver el movimiento real)
         const resCaja = await pool.query(`
@@ -185,13 +189,13 @@ bot.command('reporte', async (ctx) => {
             ORDER BY total_vendido DESC
         `);
 
-        const caja = resCaja.rows[0];
+        const caja = resCaja.rows[0] || { total_pedidos: 0, ingresos_totales: 0 };
 
         let msg = "📊 **REPORTE DE VENTAS - EL ARMANDAZO** 📊\n";
         msg += `📆 _Filtro: Ventas de Hoy_\n`;
         msg += `------------------------------------------\n`;
         msg += `📝 Comandas Totales: *${caja.total_pedidos}*\n`;
-        msg += `💰 **INGRESO TOTAL DE CAJA: S/. ${parseFloat(caja.ingresos_totales).toFixed(2)}**\n`;
+        msg += `💰 **INGRESO TOTAL DE CAJA: S/. ${parseFloat(caja. ingresos_totales).toFixed(2)}**\n`;
         msg += `------------------------------------------\n`;
         msg += `🍗 **CONTEO DE PLATOS EN TOTAL:**\n\n`;
 
